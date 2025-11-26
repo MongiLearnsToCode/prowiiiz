@@ -19,6 +19,11 @@ const AppContent: React.FC = () => {
   const [userInvitations, setUserInvitations] = useState<ProjectInvitation[]>([]);
   const { addToast } = useToast();
 
+  // Load users once on mount
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
   // Load projects and invitations when user is authenticated
   useEffect(() => {
     if (user) {
@@ -30,6 +35,15 @@ const AppContent: React.FC = () => {
       setProjectInvitations({});
     }
   }, [user]);
+
+  const loadUsers = async () => {
+    try {
+      const allUsers = await db.getAllUsers();
+      setUsers(allUsers);
+    } catch (error) {
+      console.error('Error loading users:', error);
+    }
+  };
 
   const loadProjects = async () => {
     if (!user) return;

@@ -673,6 +673,28 @@ export const getProfile = async (userId: string): Promise<User | null> => {
     }
 };
 
+export const getAllUsers = async (): Promise<User[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .order('name', { ascending: true });
+
+        if (error) throw error;
+
+        return (data || []).map(profile => ({
+            id: profile.id,
+            name: profile.name,
+            email: profile.email,
+            avatar: profile.avatar,
+            jobTitle: profile.job_title
+        }));
+    } catch (error) {
+        console.error('Error fetching all users:', error);
+        throw error;
+    }
+};
+
 export const updateProfile = async (
     userId: string,
     updates: { name?: string; jobTitle?: string; avatar?: string }
