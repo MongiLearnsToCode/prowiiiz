@@ -61,6 +61,16 @@ export interface ProjectMember {
   role: ProjectRole;
 }
 
+export interface ProjectInvitation {
+  id: string;
+  projectId: string;
+  invitedUserId: string;
+  invitedBy: string;
+  role: ProjectRole;
+  status: 'pending' | 'accepted' | 'declined';
+  createdAt: string;
+}
+
 export interface Project {
   id: string;
   name: string;

@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import { Project, Task, Milestone, Comment, Attachment, User, ProjectRole, TaskStatus, Priority } from '../types';
+import { Project, Task, Milestone, Comment, Attachment, User, ProjectRole, TaskStatus, Priority, ProjectInvitation } from '../types';
 
 // Helper function to convert database row to Project with team
 const dbToProject = async (row: any): Promise<Project> => {
@@ -744,5 +744,186 @@ const updateProjectProgress = async (projectId: string): Promise<void> => {
             .eq('id', projectId);
     } catch (error) {
         console.error('Error updating project progress:', error);
+    }
+};
+
+// ============ PROJECT INVITATIONS ============
+
+export const createProjectInvitation = async (
+    projectId: string,
+    invitedUserId: string,
+    invitedBy: string,
+    role: ProjectRole = 'Member'
+): Promise<ProjectInvitation> => {
+    try {
+        // Check if user is already a member
+        const { data: existingMember } = await supabase
+            .from('project_members')
+            .select('id')
+            .eq('project_id', projectId)
+            .eq('user_id', invitedUserId)
+            .single();
+
+        if (existingMember) {
+            throw new Error('User is already a member of this project');
+        }
+
+        // Check if there's already a pending invitation
+        const { data: existingInvitation } = await supabase
+            .from('project_invitations')
+            .select('id')
+            .eq('project_id', projectId)
+            .eq('invited_user_id', invitedUserId)
+            .eq('status', 'pending')
+            .single();
+
+        if (existingInvitation) {
+            throw new Error('User already has a pending invitation to this project');
+        }
+
+        const { data, error } = await supabase
+            .from('project_invitations')
+            .insert({
+                project_id: projectId,
+                invited_user_id: invitedUserId,
+                invited_by: invitedBy,
+                role,
+                status: 'pending'
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        return {
+            id: data.id,
+            projectId: data.project_id,
+            invitedUserId: data.invited_user_id,
+            invitedBy: data.invited_by,
+            role: data.role as ProjectRole,
+            status: data.status,
+            createdAt: data.created_at
+        };
+    } catch (error) {
+        console.error('Error creating invitation:', error);
+        throw error;
+    }
+};
+
+export const getProjectInvitations = async (projectId: string): Promise<ProjectInvitation[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('project_invitations')
+            .select('*')
+            .eq('project_id', projectId)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        return (data || []).map(inv => ({
+            id: inv.id,
+            projectId: inv.project_id,
+            invitedUserId: inv.invited_user_id,
+            invitedBy: inv.invited_by,
+            role: inv.role as ProjectRole,
+            status: inv.status,
+            createdAt: inv.created_at
+        }));
+    } catch (error) {
+        console.error('Error fetching project invitations:', error);
+        throw error;
+    }
+};
+
+export const getUserInvitations = async (userId: string): Promise<ProjectInvitation[]> => {
+    try {
+        const { data, error } = await supabase
+            .from('project_invitations')
+            .select('*')
+            .eq('invited_user_id', userId)
+            .eq('status', 'pending')
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        return (data || []).map(inv => ({
+            id: inv.id,
+            projectId: inv.project_id,
+            invitedUserId: inv.invited_user_id,
+            invitedBy: inv.invited_by,
+            role: inv.role as ProjectRole,
+            status: inv.status,
+            createdAt: inv.created_at
+        }));
+    } catch (error) {
+        console.error('Error fetching user invitations:', error);
+        throw error;
+    }
+};
+
+export const acceptProjectInvitation = async (invitationId: string): Promise<void> => {
+    try {
+        // Get invitation details
+        const { data: invitation, error: invError } = await supabase
+            .from('project_invitations')
+            .select('*')
+            .eq('id', invitationId)
+            .eq('status', 'pending')
+            .single();
+
+        if (invError) throw invError;
+        if (!invitation) throw new Error('Invitation not found or already processed');
+
+        // Add user to project
+        const { error: memberError } = await supabase
+            .from('project_members')
+            .insert({
+                project_id: invitation.project_id,
+                user_id: invitation.invited_user_id,
+                role: invitation.role
+            });
+
+        if (memberError) throw memberError;
+
+        // Update invitation status
+        const { error: updateError } = await supabase
+            .from('project_invitations')
+            .update({ status: 'accepted' })
+            .eq('id', invitationId);
+
+        if (updateError) throw updateError;
+    } catch (error) {
+        console.error('Error accepting invitation:', error);
+        throw error;
+    }
+};
+
+export const declineProjectInvitation = async (invitationId: string): Promise<void> => {
+    try {
+        const { error } = await supabase
+            .from('project_invitations')
+            .update({ status: 'declined' })
+            .eq('id', invitationId);
+
+        if (error) throw error;
+    } catch (error) {
+        console.error('Error declining invitation:', error);
+        throw error;
+    }
+};
+
+export const cancelProjectInvitation = async (invitationId: string): Promise<void> => {
+    try {
+        const { error } = await supabase
+            .from('project_invitations')
+            .delete()
+            .eq('id', invitationId)
+            .eq('status', 'pending');
+
+        if (error) throw error;
+    } catch (error) {
+        console.error('Error canceling invitation:', error);
+        throw error;
     }
 };

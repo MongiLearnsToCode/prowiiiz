@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Project, User, AppView, WizardData, Task, TaskStatus, Priority, Milestone, Comment, ProjectRole, Attachment } from './types';
+import { Project, User, AppView, WizardData, Task, TaskStatus, Priority, Milestone, Comment, ProjectRole, Attachment, ProjectInvitation } from './types';
 import { Wizard } from './components/Wizard';
 import { Dashboard } from './components/Dashboard';
 import { ProjectDetail } from './components/ProjectDetail';
@@ -15,14 +15,19 @@ const AppContent: React.FC = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [projectInvitations, setProjectInvitations] = useState<Record<string, ProjectInvitation[]>>({});
+  const [userInvitations, setUserInvitations] = useState<ProjectInvitation[]>([]);
   const { addToast } = useToast();
 
-  // Load projects when user is authenticated
+  // Load projects and invitations when user is authenticated
   useEffect(() => {
     if (user) {
       loadProjects();
+      loadUserInvitations();
     } else {
       setProjects([]);
+      setUserInvitations([]);
+      setProjectInvitations({});
     }
   }, [user]);
 
@@ -33,11 +38,30 @@ const AppContent: React.FC = () => {
     try {
       const userProjects = await db.getProjects(user.id);
       setProjects(userProjects);
+
+      // Load invitations for each project
+      const invitationsMap: Record<string, ProjectInvitation[]> = {};
+      for (const project of userProjects) {
+        const invitations = await db.getProjectInvitations(project.id);
+        invitationsMap[project.id] = invitations;
+      }
+      setProjectInvitations(invitationsMap);
     } catch (error) {
       console.error('Error loading projects:', error);
       addToast('Failed to load projects', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadUserInvitations = async () => {
+    if (!user) return;
+
+    try {
+      const invitations = await db.getUserInvitations(user.id);
+      setUserInvitations(invitations);
+    } catch (error) {
+      console.error('Error loading invitations:', error);
     }
   };
 
@@ -193,6 +217,67 @@ const AppContent: React.FC = () => {
     }
   };
 
+  // Invitation Handlers
+  const handleInviteUser = async (projectId: string, userId: string, role: 'Member' | 'Viewer') => {
+    if (!user) return;
+
+    try {
+      await db.createProjectInvitation(projectId, userId, user.id, role);
+
+      // Reload project invitations
+      const invitations = await db.getProjectInvitations(projectId);
+      setProjectInvitations(prev => ({ ...prev, [projectId]: invitations }));
+
+      addToast('Invitation sent', 'success');
+    } catch (error: any) {
+      console.error('Error inviting user:', error);
+      addToast(error.message || 'Failed to send invitation', 'error');
+    }
+  };
+
+  const handleCancelInvitation = async (invitationId: string) => {
+    try {
+      await db.cancelProjectInvitation(invitationId);
+
+      // Reload all project invitations
+      await loadProjects();
+
+      addToast('Invitation canceled', 'info');
+    } catch (error) {
+      console.error('Error canceling invitation:', error);
+      addToast('Failed to cancel invitation', 'error');
+    }
+  };
+
+  const handleAcceptInvitation = async (invitationId: string) => {
+    try {
+      await db.acceptProjectInvitation(invitationId);
+
+      // Reload projects and invitations
+      await loadProjects();
+      await loadUserInvitations();
+
+      addToast('Invitation accepted! Project added to your dashboard', 'success');
+    } catch (error) {
+      console.error('Error accepting invitation:', error);
+      addToast('Failed to accept invitation', 'error');
+    }
+  };
+
+  const handleDeclineInvitation = async (invitationId: string) => {
+    try {
+      await db.declineProjectInvitation(invitationId);
+
+      // Reload invitations
+      await loadUserInvitations();
+
+      addToast('Invitation declined', 'info');
+    } catch (error) {
+      console.error('Error declining invitation:', error);
+      addToast('Failed to decline invitation', 'error');
+    }
+  };
+
   // Show loading screen while checking auth
   if (authLoading) {
     return (
@@ -238,6 +323,9 @@ const AppContent: React.FC = () => {
             onAddComment={handleAddComment}
             onAddMilestone={handleAddMilestone}
             onMoveTask={handleMoveTask}
+            projectInvitations={projectInvitations[activeProject.id] || []}
+            onInviteUser={handleInviteUser}
+            onCancelInvitation={handleCancelInvitation}
           />
         );
 
@@ -253,6 +341,9 @@ const AppContent: React.FC = () => {
             onLogout={handleLogout}
             onEditProject={handleEditProject}
             onDeleteProject={handleDeleteProject}
+            userInvitations={userInvitations}
+            onAcceptInvitation={handleAcceptInvitation}
+            onDeclineInvitation={handleDeclineInvitation}
           />
         );
     }
